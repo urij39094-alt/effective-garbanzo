@@ -4,8 +4,8 @@ import logging
 import requests
 import traceback
 from datetime import datetime, timedelta
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, LabeledPrice
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes, PreCheckoutQueryHandler
 
 # Настройка логирования
 logging.basicConfig(
@@ -15,7 +15,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Конфигурация
-TELEGRAM_TOKEN = ""8831108095:AAHggP-ctbO3G4iQ7G_ewecFPzBtZFG6yX0
+TELEGRAM_TOKEN = "8831108095:AAHggP-ctbO3G4iQ7G_ewecFPzBtZFG6yX0"
 OPENROUTER_API_KEY = "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"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 MODEL = "inclusionai/ling-3.0-flash:free"
@@ -26,10 +26,12 @@ SUPPORT_USERNAME = "@stalkow"
 FREE_REQUESTS_PER_DAY = 10
 PREMIUM_REQUESTS_PER_DAY = 20
 
-# Цены в Telegram Stars
+# Цены в Telegram Stars (1 Star ≈ $0.01)
 PRICE_MONTH = 5  # 5 Stars за месяц
-PRICE_YEAR = PRICE_MONTH * 12  # 60 Stars за год (без скидки)
-PRICE_YEAR_WITH_DISCOUNT = int(PRICE_YEAR * 0.67)  # 40 Stars за год (скидка 33%)
+PRICE_YEAR = 40  # 40 Stars за год (5×12=60, скидка 33% = 40)
+
+# ID провайдера платежей (должен совпадать с настройками в BotFather)
+PROVIDER_TOKEN = "YOUR_PROVIDER_TOKEN"  # Получить у платежного провайдера
 
 class StalkowAI:
     def __init__(self):
@@ -278,7 +280,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"• Приоритетная поддержка\n\n"
             f"💳 *Цены в Stars:*\n"
             f"• Месяц: {PRICE_MONTH} ⭐\n"
-            f"• Год: {PRICE_YEAR_WITH_DISCOUNT} ⭐ (экономия {PRICE_YEAR - PRICE_YEAR_WITH_DISCOUNT} ⭐)",
+            f"• Год: {PRICE_YEAR} ⭐ (экономия 20 ⭐)",
             parse_mode='Markdown',
             reply_markup=get_main_keyboard(user_id, stalkow_bot)
         )
@@ -396,12 +398,12 @@ async def show_premium_options(update: Update, stalkow_bot: StalkowAI, user_id: 
             f"📅 *Месяц:* {PRICE_MONTH} ⭐\n"
             f"• {PREMIUM_REQUESTS_PER_DAY} запросов/день\n"
             f"• Размышления\n\n"
-            f"📅 *Год:* {PRICE_YEAR_WITH_DISCOUNT} ⭐\n"
+            f"📅 *Год:* {PRICE_YEAR} ⭐\n"
             f"• {PREMIUM_REQUESTS_PER_DAY} запросов/день\n"
             f"• Размышления\n"
-            f"• Экономия {PRICE_YEAR - PRICE_YEAR_WITH_DISCOUNT} ⭐ (33%)\n\n"
-            f"💡 *Расчет:* {PRICE_MONTH} ⭐ × 12 = {PRICE_YEAR} ⭐\n"
-            f"🔥 *Годовая цена:* {PRICE_YEAR_WITH_DISCOUNT} ⭐ (выгода {PRICE_YEAR - PRICE_YEAR_WITH_DISCOUNT} ⭐)",
+            f"• Экономия 20 ⭐ (33%)\n\n"
+            f"💡 *Расчет:* {PRICE_MONTH} ⭐ × 12 = {PRICE_MONTH * 12} ⭐\n"
+            f"🔥 *Годовая цена:* {PRICE_YEAR} ⭐ (выгода {PRICE_MONTH * 12 - PRICE_YEAR} ⭐)",
             parse_mode='Markdown',
             reply_markup=get_premium_keyboard()
         )
@@ -411,35 +413,47 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     user_id = update.effective_user.id
-    stalkow_bot = context.bot_data['stalkow_bot']
     
     if query.data == "buy_month":
-        await query.message.reply_text(
-            f"💎 *Покупка Premium на месяц*\n\n"
-            f"📝 *Тариф:* Premium\n"
-            f"📅 *Срок:* 1 месяц\n"
-            f"💳 *Цена:* {PRICE_MONTH} ⭐\n\n"
-            f"Для оплаты используйте команду:\n"
-            f"`/pay {PRICE_MONTH}`",
-            parse_mode='Markdown'
+        # Создаем реальный счет на оплату
+        await context.bot.send_invoice(
+            chat_id=update.effective_chat.id,
+            title="Stalkow AI Premium - Месяц",
+            description=f"Премиум доступ на 1 месяц\n{PREMIUM_REQUESTS_PER_DAY} запросов/день\nРазмышления включены",
+            payload="premium_month",
+            provider_token=PROVIDER_TOKEN,
+            currency="XTR",  # XTR - код для Telegram Stars
+            prices=[LabeledPrice("Premium Месяц", PRICE_MONTH)],
+            start_parameter="premium_month",
+            need_name=False,
+            need_phone_number=False,
+            need_email=False,
+            need_shipping_address=False,
+            is_flexible=False
         )
         
     elif query.data == "buy_year":
-        await query.message.reply_text(
-            f"💎 *Покупка Premium на год*\n\n"
-            f"📝 *Тариф:* Premium\n"
-            f"📅 *Срок:* 12 месяцев\n"
-            f"💳 *Цена:* {PRICE_YEAR_WITH_DISCOUNT} ⭐\n"
-            f"🔥 *Экономия:* {PRICE_YEAR - PRICE_YEAR_WITH_DISCOUNT} ⭐ (33%)\n\n"
-            f"Для оплаты используйте команду:\n"
-            f"`/pay {PRICE_YEAR_WITH_DISCOUNT}`",
-            parse_mode='Markdown'
+        # Создаем реальный счет на оплату
+        await context.bot.send_invoice(
+            chat_id=update.effective_chat.id,
+            title="Stalkow AI Premium - Год",
+            description=f"Премиум доступ на 12 месяцев\n{PREMIUM_REQUESTS_PER_DAY} запросов/день\nЭкономия 20 Stars!",
+            payload="premium_year",
+            provider_token=PROVIDER_TOKEN,
+            currency="XTR",  # XTR - код для Telegram Stars
+            prices=[LabeledPrice("Premium Год", PRICE_YEAR)],
+            start_parameter="premium_year",
+            need_name=False,
+            need_phone_number=False,
+            need_email=False,
+            need_shipping_address=False,
+            is_flexible=False
         )
         
     elif query.data == "info_discount":
         await query.answer(
-            f"Годовая подписка: {PRICE_YEAR_WITH_DISCOUNT}⭐ вместо {PRICE_YEAR}⭐\n"
-            f"Экономия {PRICE_YEAR - PRICE_YEAR_WITH_DISCOUNT} Stars (33%)!",
+            f"Годовая подписка: {PRICE_YEAR}⭐ вместо {PRICE_MONTH * 12}⭐\n"
+            f"Экономия {PRICE_MONTH * 12 - PRICE_YEAR} Stars (33%)!",
             show_alert=True
         )
     
@@ -449,58 +463,51 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=None
         )
 
-async def pay_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+async def pre_checkout_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Подтверждение перед оплатой"""
+    query = update.pre_checkout_query
     
-    try:
-        amount = int(context.args[0]) if context.args else 0
+    # Проверяем payload
+    if query.invoice_payload in ["premium_month", "premium_year"]:
+        # Подтверждаем оплату
+        await query.answer(ok=True)
+    else:
+        # Отклоняем
+        await query.answer(ok=False, error_message="Неверный товар")
+
+async def successful_payment_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик успешной оплаты"""
+    user_id = update.effective_user.id
+    payment = update.message.successful_payment
+    stalkow_bot = context.bot_data['stalkow_bot']
+    
+    if payment.invoice_payload == "premium_month":
+        # Активируем премиум на месяц
+        expiry = stalkow_bot.add_premium(user_id, months=1)
         
-        if amount == PRICE_MONTH:
-            stalkow_bot = context.bot_data['stalkow_bot']
-            expiry = stalkow_bot.add_premium(user_id, months=1)
-            
-            await update.message.reply_text(
-                "✅ *Оплата успешна!*\n\n"
-                "💎 Premium активирован на 1 месяц\n"
-                f"📅 Действует до: {expiry.strftime('%d.%m.%Y')}\n"
-                f"📝 Лимит: {PREMIUM_REQUESTS_PER_DAY} запросов/день\n\n"
-                "Спасибо за поддержку! 🎉",
-                parse_mode='Markdown',
-                reply_markup=get_main_keyboard(user_id, context.bot_data['stalkow_bot'])
-            )
-            
-        elif amount == PRICE_YEAR_WITH_DISCOUNT:
-            stalkow_bot = context.bot_data['stalkow_bot']
-            expiry = stalkow_bot.add_premium(user_id, months=12)
-            
-            await update.message.reply_text(
-                "✅ *Оплата успешна!*\n\n"
-                "💎 Premium активирован на 12 месяцев\n"
-                f"📅 Действует до: {expiry.strftime('%d.%m.%Y')}\n"
-                f"📝 Лимит: {PREMIUM_REQUESTS_PER_DAY} запросов/день\n"
-                f"🔥 Вы сэкономили {PRICE_YEAR - PRICE_YEAR_WITH_DISCOUNT} Stars!\n\n"
-                "Спасибо за поддержку! 🎉",
-                parse_mode='Markdown',
-                reply_markup=get_main_keyboard(user_id, context.bot_data['stalkow_bot'])
-            )
-            
-        else:
-            await update.message.reply_text(
-                "❌ Неверная сумма\n\n"
-                "Доступные варианты:\n"
-                f"• `/pay {PRICE_MONTH}` - месяц ({PRICE_MONTH} ⭐)\n"
-                f"• `/pay {PRICE_YEAR_WITH_DISCOUNT}` - год ({PRICE_YEAR_WITH_DISCOUNT} ⭐)",
-                parse_mode='Markdown'
-            )
-            
-    except (IndexError, ValueError):
         await update.message.reply_text(
-            f"💳 *Оплата Premium*\n\n"
-            f"Используйте:\n"
-            f"• `/pay {PRICE_MONTH}` - месяц\n"
-            f"• `/pay {PRICE_YEAR_WITH_DISCOUNT}` - год\n\n"
-            f"💡 Цены в Telegram Stars",
-            parse_mode='Markdown'
+            "✅ *Оплата успешна!*\n\n"
+            "💎 Premium активирован на 1 месяц\n"
+            f"📅 Действует до: {expiry.strftime('%d.%m.%Y')}\n"
+            f"📝 Лимит: {PREMIUM_REQUESTS_PER_DAY} запросов/день\n\n"
+            "Спасибо за поддержку! 🎉",
+            parse_mode='Markdown',
+            reply_markup=get_main_keyboard(user_id, stalkow_bot)
+        )
+    
+    elif payment.invoice_payload == "premium_year":
+        # Активируем премиум на год
+        expiry = stalkow_bot.add_premium(user_id, months=12)
+        
+        await update.message.reply_text(
+            "✅ *Оплата успешна!*\n\n"
+            "💎 Premium активирован на 12 месяцев\n"
+            f"📅 Действует до: {expiry.strftime('%d.%m.%Y')}\n"
+            f"📝 Лимит: {PREMIUM_REQUESTS_PER_DAY} запросов/день\n"
+            "🔥 Вы сэкономили 20 Stars!\n\n"
+            "Спасибо за поддержку! 🎉",
+            parse_mode='Markdown',
+            reply_markup=get_main_keyboard(user_id, stalkow_bot)
         )
 
 def main():
@@ -508,6 +515,11 @@ def main():
     
     if TELEGRAM_TOKEN == "YOUR_TELEGRAM_BOT_TOKEN":
         print("❌ Укажите TELEGRAM_TOKEN!")
+        return
+    
+    if PROVIDER_TOKEN == "YOUR_PROVIDER_TOKEN":
+        print("❌ Укажите PROVIDER_TOKEN!")
+        print("💡 Получить токен: @BotFather → Payments")
         return
     
     if OPENROUTER_API_KEY == "YOUR_OPENROUTER_API_KEY":
@@ -518,17 +530,25 @@ def main():
     application = Application.builder().token(TELEGRAM_TOKEN).build()
     application.bot_data['stalkow_bot'] = stalkow_bot
     
+    # Обработчики команд
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("pay", pay_command))
+    
+    # Обработчики платежей
+    application.add_handler(PreCheckoutQueryHandler(pre_checkout_handler))
+    application.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_handler))
+    
+    # Обработчик callback-запросов (кнопки)
     application.add_handler(CallbackQueryHandler(handle_callback))
+    
+    # Обработчик сообщений
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
     print(f"✅ {BOT_NAME} запущен!")
     print(f"📊 Тарифы:")
     print(f"   🆓 Бесплатный: {FREE_REQUESTS_PER_DAY} запросов/день")
     print(f"   💎 Премиум: {PREMIUM_REQUESTS_PER_DAY} запросов/день")
-    print(f"   💳 Месяц: {PRICE_MONTH}⭐")
-    print(f"   💳 Год: {PRICE_YEAR_WITH_DISCOUNT}⭐ (экономия {PRICE_YEAR - PRICE_YEAR_WITH_DISCOUNT}⭐)")
+    print(f"   💳 Месяц: {PRICE_MONTH} ⭐")
+    print(f"   💳 Год: {PRICE_YEAR} ⭐ (экономия {PRICE_MONTH * 12 - PRICE_YEAR} ⭐)")
     
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
